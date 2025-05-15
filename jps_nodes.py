@@ -243,7 +243,7 @@ accepted_ratios_square = {
 
 
 class SDXL_Resolutions:
-    resolution = ["square - 1024x1024 (1:1)","landscape - 1152x896 (4:3)","landscape - 1216x832 (3:2)","landscape - 1344x768 (16:9)","landscape - 1536x640 (21:9)", "portrait - 896x1152 (3:4)","portrait - 832x1216 (2:3)","portrait - 768x1344 (9:16)","portrait - 640x1536 (9:21)"]
+    resolution = ["square - 1024x1024 (1:1)","landscape - 1152x896 (4:3)","landscape - 1344x768 (16:9)", "portrait - 896x1152 (3:4)","portrait - 768x1344 (9:16)"]
     
     def __init__(self):
         pass
@@ -252,7 +252,7 @@ class SDXL_Resolutions:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "resolution": (s.resolution,),
+                "resolution": (s.resolution,), # 下拉選單的選項來自更新後的列表
             }
         }
     RETURN_TYPES = ("INT","INT",)
@@ -262,37 +262,42 @@ class SDXL_Resolutions:
     CATEGORY="JPS Nodes/Settings"
 
     def get_resolutions(self,resolution):
-        width = 1024
-        height = 1024
-        width = int(width)
-        height = int(height)
+        width = 1024 # 預設值
+        height = 1024 # 預設值
+        
+        # 確保即使傳入意外的 resolution 值，也有預設值
+        # （儘管 ComfyUI 通常會從下拉列表中選擇有效值）
+
         if(resolution == "square - 1024x1024 (1:1)"):
             width = 1024
             height = 1024
-        if(resolution == "landscape - 1152x896 (4:3)"):
+        elif(resolution == "landscape - 1152x896 (4:3)"):
             width = 1152
             height = 896
-        if(resolution == "landscape - 1216x832 (3:2)"):
-            width = 1216
-            height = 832
-        if(resolution == "landscape - 1344x768 (16:9)"):
+        # elif(resolution == "landscape - 1216x832 (3:2)"): # 對應的 if 塊已移除
+        #     width = 1216
+        #     height = 832
+        elif(resolution == "landscape - 1344x768 (16:9)"):
             width = 1344
             height = 768
-        if(resolution == "landscape - 1536x640 (21:9)"):
-            width = 1536
-            height = 640
-        if(resolution == "portrait - 896x1152 (3:4)"):
+        # elif(resolution == "landscape - 1536x640 (21:9)"): # 對應的 if 塊已移除
+        #     width = 1536
+        #     height = 640
+        elif(resolution == "portrait - 896x1152 (3:4)"):
             width = 896
             height = 1152
-        if(resolution == "portrait - 832x1216 (2:3)"):
-            width = 832
-            height = 1216
-        if(resolution == "portrait - 768x1344 (9:16)"):
+        # elif(resolution == "portrait - 832x1216 (2:3)"):   # 對應的 if 塊已移除
+        #     width = 832
+        #     height = 1216
+        elif(resolution == "portrait - 768x1344 (9:16)"):
             width = 768
             height = 1344
-        if(resolution == "portrait - 640x1536 (9:21)"):
-            width = 640
-            height = 1536
+        # elif(resolution == "portrait - 640x1536 (9:21)"): # 對應的 if 塊已移除
+        #     width = 640
+        #     height = 1536
+        
+        # 如果 resolution 字符串不匹配任何已知選項（例如，如果舊的工作流保存了現已被移除的選項），
+        # width 和 height 將保持其初始預設值 (1024x1024)。
             
         return(int(width),int(height))
 
@@ -2109,37 +2114,72 @@ class Conditioning_Switch:
     RETURN_NAMES = ("con_out",)
     FUNCTION = "get_con"
 
+    # 定義此節點當前版本支持的最大 condition 輸入數量。
+    # 若要擴展，請增加此數字，並確保 get_con 的 **kwargs 和 INPUT_TYPES 能正確處理。
+    # 為了演示高度可擴展性，我們不需要硬編碼一個具體的數字在這裡，
+    # 而是讓 INPUT_TYPES 的定義決定實際上有多少個 con_X 輸入。
+    # 但為了方便管理，我們可以在 INPUT_TYPES 中決定要生成多少個。
+    # 假設我們設計一個初始支持到 con_20 的版本，但用戶可以只用前面幾個。
+
+    _MAX_DEFINED_OPTIONAL_INPUTS = 20 # 您可以將此數字設為您預期節點UI上要顯示的最大接口數
+
     def __init__(self):
         pass
 
     @classmethod
     def INPUT_TYPES(cls):
+        optional_inputs = {}
+        # 動態生成 con_1 到 con_N 的 optional input 定義
+        # 注意：我們將 con_1 也視為 optional，以便統一處理，
+        # 但在 get_con 邏輯中，如果select=1且con_1未連接，仍會報錯。
+        for i in range(1, cls._MAX_DEFINED_OPTIONAL_INPUTS + 1):
+            optional_inputs[f"con_{i}"] = ("CONDITIONING",)
+
         return {
             "required": {
-                "select": ("INT", {}),
+                # 移除固定的 max 值。
+                # default: 1, min: 1。用戶可以輸入大於1的任意整數。
+                # step: 1
+                "select": ("INT", {"default": 1, "min": 1, "step": 1}),
             },
-            "optional": {
-                "con_1": ("CONDITIONING",),
-                "con_2": ("CONDITIONING",),
-                "con_3": ("CONDITIONING",),
-                "con_4": ("CONDITIONING",),
-                "con_5": ("CONDITIONING",),
-            }
+            "optional": optional_inputs # 包含 con_1 到 con_{_MAX_DEFINED_OPTIONAL_INPUTS}
         }
 
-    def get_con(self,select,con_1,con_2=None,con_3=None,con_4=None,con_5=None,):
+    # 使用 **kwargs 來接收所有在 INPUT_TYPES 中定義的 optional 輸入
+    def get_con(self, select, **kwargs): 
         
-        con_out = con_1
+        # 獲取在 INPUT_TYPES 中定義的所有 con_{i} 輸入的實際數量
+        # 這可以通過檢查 kwargs 中實際傳入的 con_X 鍵的數量，或者更可靠地，
+        # 依賴於我們在 INPUT_TYPES 中定義了多少個。
+        # 為了與 INPUT_TYPES 的定義保持一致，我們基於 _MAX_DEFINED_OPTIONAL_INPUTS
+        
+        num_defined_inputs = self._MAX_DEFINED_OPTIONAL_INPUTS
 
-        if (select == 2):
-            con_out = con_2
-        elif (select == 3):
-            con_out  = con_3
-        elif (select == 4):
-            con_out = con_4
-        elif (select == 5):
-            con_out = con_5
-
+        # 1. 檢查 'select' 的值是否在節點定義的邏輯輸入範圍內 (1 到 num_defined_inputs)
+        if not (1 <= select <= num_defined_inputs):
+            raise ValueError(
+                f"Conditioning Switch (JPS) - Error:\n"
+                f"Selected input index '{select}' is out of the defined port range for this node (1 to {num_defined_inputs}). "
+                f"Please choose a number within this range."
+            )
+            
+        # 2. 獲取被選擇的 condition 輸入的鍵名
+        selected_input_key = f"con_{select}"
+        
+        # 3. 從 kwargs 中獲取選定的 condition 輸入值
+        # kwargs.get(key, default_value) 如果鍵不存在，返回 default_value (這裡我們用 None)
+        selected_condition_value = kwargs.get(selected_input_key, None)
+        
+        # 4. 檢查選擇的 condition 端口是否有實際連接的輸入值
+        if selected_condition_value is None:
+            raise ValueError(
+                f"Conditioning Switch (JPS) - Error:\n"
+                f"Input '{selected_input_key}' (selected by index '{select}') is not connected or has no data. "
+                f"Please connect a valid conditioning to '{selected_input_key}' or choose a different, connected input."
+            )
+            
+        # 如果所有檢查都通過，返回選擇的 condition
+        con_out = selected_condition_value
         return (con_out,)
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------#
@@ -2228,45 +2268,144 @@ class IPA_Switch:
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------#
 
-class Latent_Switch:
+import random
+import torch # For Latent Switch, if we need to handle tensor structures more directly
 
-    CATEGORY = 'JPS Nodes/Switches'
+class Latent_Switch_Looped: # 改名以區分
+
+    CATEGORY = 'JPS Nodes/Switches Advanced' # 或者新的分類
     RETURN_TYPES = ("LATENT",)
-    RETURN_NAMES = ("latent_out",)
-    FUNCTION = "get_latent"
+    RETURN_NAMES = ("latent_batch_out",)
+    FUNCTION = "get_latent_batch"
+    OUTPUT_IS_LIST = (True,) # 標記輸出是一個列表
+
+    _MAX_LATENT_INPUTS = 5 # 可以根據需要調整
 
     def __init__(self):
         pass
 
     @classmethod
     def INPUT_TYPES(cls):
+        optional_inputs = {}
+        for i in range(1, cls._MAX_LATENT_INPUTS + 1):
+            optional_inputs[f"latent_{i}"] = ("LATENT",)
+
         return {
             "required": {
-                "select": ("INT", {}),
+                "mode": (["Single", "Loop Sequence", "Random Batch"], {"default": "Single"}),
+                "batch_count": ("INT", {"default": 1, "min": 1, "max": 256, "step": 1}), # 決定輸出列表的長度
+                
+                # Single Mode
+                "single_select_index": ("INT", {"default": 1, "min": 1, "max": cls._MAX_LATENT_INPUTS, "step": 1}),
+                
+                # Loop Sequence Mode
+                "loop_from_index": ("INT", {"default": 1, "min": 1, "max": cls._MAX_LATENT_INPUTS, "step": 1}),
+                "loop_to_index": ("INT", {"default": cls._MAX_LATENT_INPUTS, "min": 1, "max": cls._MAX_LATENT_INPUTS, "step": 1}),
+                "loop_step": ("INT", {"default": 1, "min": 1, "step": 1}),
             },
-            "optional": {
-                "latent_1": ("LATENT",),
-                "latent_2": ("LATENT",),
-                "latent_3": ("LATENT",),
-                "latent_4": ("LATENT",),
-                "latent_5": ("LATENT",),
-            }
+            "optional": optional_inputs
         }
 
-    def get_latent(self,select,latent_1=None,latent_2=None,latent_3=None,latent_4=None,latent_5=None,):
+    def get_latent_batch(self, mode, batch_count, 
+                         single_select_index, 
+                         loop_from_index, loop_to_index, loop_step, 
+                         **kwargs): # kwargs 接收所有 latent_X
+
+        all_defined_latents = [] # 列表，元素為 latent_X 的值 (可能是 dict 或 None)
+        for i in range(1, self._MAX_LATENT_INPUTS + 1):
+            all_defined_latents.append(kwargs.get(f"latent_{i}", None))
+
+        # 獲取 latent_1 作為後備 (確保它也是有效的 latent dict 結構，否則為 None)
+        fallback_latent_1_dict = all_defined_latents[0]
+        if not (fallback_latent_1_dict and isinstance(fallback_latent_1_dict, dict) and "samples" in fallback_latent_1_dict):
+            fallback_latent_1_dict = None
+            
+        # 收集所有實際已連接且有效的 latent inputs (它們是 dict)
+        connected_valid_latents = []
+        for latent_dict in all_defined_latents:
+            if latent_dict and isinstance(latent_dict, dict) and "samples" in latent_dict:
+                connected_valid_latents.append(latent_dict)
+
+        output_batch = []
+
+        if mode == "Single":
+            # 確保 single_select_index 在有效範圍內
+            if not (1 <= single_select_index <= self._MAX_LATENT_INPUTS):
+                print(f"Warning: Latent Switch Looped - 'single_select_index' {single_select_index} is out of range (1-{self._MAX_LATENT_INPUTS}). Defaulting to latent_1 if available.")
+                selected_latent = fallback_latent_1_dict
+            else:
+                selected_latent = all_defined_latents[single_select_index - 1]
+                if not (selected_latent and isinstance(selected_latent, dict) and "samples" in selected_latent):
+                    print(f"Info: Latent Switch Looped - latent_{single_select_index} is not connected or invalid. Defaulting to latent_1 if available.")
+                    selected_latent = fallback_latent_1_dict
+            
+            # Single 模式也輸出 batch_count 個相同的選定 latent
+            for _ in range(batch_count):
+                if selected_latent:
+                    output_batch.append(selected_latent)
+                elif fallback_latent_1_dict: # 如果選定的沒有，但 latent_1 有
+                     output_batch.append(fallback_latent_1_dict)
+                else: # 如果都沒有
+                    print(f"Warning: Latent Switch Looped (Single Mode) - No valid latent to select, and latent_1 is also unavailable. Appending None to batch.")
+                    output_batch.append(None) # 或者可以選擇報錯
+
+        elif mode == "Loop Sequence":
+            current_index = loop_from_index
+            generated_count = 0
+            
+            # 構建實際的索引序列，考慮到 step 和 to_index
+            index_sequence = []
+            idx_val = loop_from_index
+            if loop_step <= 0: loop_step = 1 # 防止死循環
+            
+            # 判斷是遞增還是遞減
+            if loop_from_index <= loop_to_index:
+                while idx_val <= loop_to_index:
+                    index_sequence.append(idx_val)
+                    idx_val += loop_step
+            else: # from > to, 遞減
+                 while idx_val >= loop_to_index:
+                    index_sequence.append(idx_val)
+                    idx_val -= loop_step # 假設遞減時步長也是正數，方向由 from/to 決定
+            
+            if not index_sequence: # 如果序列為空 (例如 from=5, to=1, step=1)
+                print(f"Warning: Latent Switch Looped (Loop Sequence Mode) - Generated index sequence is empty. Defaulting to latent_1 for all batch items if available.")
+                for _ in range(batch_count):
+                    output_batch.append(fallback_latent_1_dict if fallback_latent_1_dict else None)
+            else:
+                for i in range(batch_count):
+                    actual_select_index = index_sequence[i % len(index_sequence)] # 循環使用索引序列
+                    
+                    selected_latent = None
+                    if 1 <= actual_select_index <= self._MAX_LATENT_INPUTS:
+                        selected_latent = all_defined_latents[actual_select_index - 1]
+                    
+                    if not (selected_latent and isinstance(selected_latent, dict) and "samples" in selected_latent):
+                        print(f"Info: Latent Switch Looped (Loop Sequence) - latent_{actual_select_index} for batch item {i+1} is not connected or invalid. Defaulting to latent_1 if available.")
+                        selected_latent = fallback_latent_1_dict
+                    
+                    if selected_latent:
+                        output_batch.append(selected_latent)
+                    elif fallback_latent_1_dict:
+                        output_batch.append(fallback_latent_1_dict)
+                    else:
+                        print(f"Warning: Latent Switch Looped (Loop Sequence Mode) - No valid latent for index {actual_select_index} and latent_1 is also unavailable. Appending None to batch.")
+                        output_batch.append(None)
+
+        elif mode == "Random Batch":
+            if not connected_valid_latents:
+                print(f"Warning: Latent Switch Looped (Random Batch Mode) - No latents connected to choose from. Outputting batch of Nones.")
+                for _ in range(batch_count):
+                    output_batch.append(None)
+            else:
+                for _ in range(batch_count):
+                    output_batch.append(random.choice(connected_valid_latents))
         
-        latent_out = latent_1
+        if not output_batch: # 如果由於某些原因output_batch還是空的
+            print(f"Critical Warning: Latent Switch Looped - Output batch is empty. This should not happen. Defaulting to list with None.")
+            return ([None],) # 返回一個包含None的列表，而不是空列表，以匹配OUTPUT_IS_LIST
 
-        if (select == 2):
-            latent_out = latent_2
-        elif (select == 3):
-            latent_out = latent_3
-        elif (select == 4):
-            latent_out = latent_4
-        elif (select == 5):
-            latent_out = latent_5
-
-        return (latent_out,)
+        return (output_batch,)
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------#
 
@@ -3490,7 +3629,7 @@ NODE_CLASS_MAPPINGS = {
     "Sampler Scheduler Settings (JPS)": Sampler_Scheduler_Settings,
     "Integer Switch (JPS)": Integer_Switch,
     "Image Switch (JPS)": Image_Switch,
-    "Latent Switch (JPS)": Latent_Switch,
+    "Latent Switch (JPS)": Latent_Switch_Looped,
     "Conditioning Switch (JPS)": Conditioning_Switch,
     "Model Switch (JPS)": Model_Switch,
     "IPA Switch (JPS)": IPA_Switch,
